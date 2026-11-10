@@ -1,21 +1,28 @@
 # BDRIS Cloud UI
 
-React dashboard frontend for a separately hosted BDRIS Bot backend.
+React dashboard frontend for the authenticated local BDRIS Bot dashboard gateway.
 
-## Deploy to Vercel
-1. Import this GitHub repository into Vercel.
-2. Framework preset: Vite.
-3. Build command: `npm run build`.
-4. Output directory: `dist`.
-5. Add environment variable `VITE_BOT_API_URL` with the HTTPS base URL of the Bot computer's Cloudflare Tunnel (do not include the review query string).
-6. Redeploy after setting the variable.
+## Connect to the Bot running on your Local PC
 
-## Current backend endpoints used
-- `GET /health`
-- `GET /api/application-mappings`
-- `GET /api/otp/current`
+1. Start the V153 Bot on the Local PC. It starts a separate authenticated Dashboard Gateway on `127.0.0.1:8792`.
+2. The Bot starts a dedicated Cloudflare Quick Tunnel to that gateway only. Do not expose the Extension Bridge port `8791` directly.
+3. Copy the printed `https://....trycloudflare.com` Dashboard Tunnel URL.
+4. Copy the generated `dashboard-access-token.local` contents from the Bot folder. Keep it secret.
+5. Open this Vercel UI, select **Connection**, paste the HTTPS URL and token, then save.
+6. The token is kept in the current browser session storage. The URL is kept in local storage. Re-enter the token after the browser session ends.
 
-## Pending backend work
-The supplied V153 ZIP does not currently expose a secured dashboard API for Bot start/stop, WhatsApp connection state, V153 controls, remote React Parser execution, or reports/delivery history. The UI intentionally keeps unsupported controls disabled rather than sending unsafe requests.
+## Optional backend environment
 
-**Security:** The current backend routes shown in the supplied ZIP do not implement dashboard authentication. Do not expose control or sensitive data endpoints publicly until authentication, authorization, CORS allowlisting, and request validation are implemented. Never put API secrets in Vite client environment variables.
+- `DASHBOARD_PORT=8792`
+- `DASHBOARD_API_TOKEN`: optional fixed secret (at least 32 characters). If absent, a random local token is generated in `dashboard-access-token.local`.
+- `DASHBOARD_ALLOWED_ORIGINS`: comma-separated exact Vercel origins. Configure this on the local Bot process.
+
+## Security and limitations
+
+- The full Extension Bridge API remains local and is not public. The tunnel reaches only the Dashboard Gateway allowlist.
+- The gateway requires a Bearer token, limits request rates, checks configured origins, and exposes only health, status, application mappings, current OTP summary, and a guarded Bot start request.
+- Bot start is disabled in `V153_EMBEDDED=1` mode to avoid creating a second Baileys socket. No remote Stop action is exposed in this release.
+- React Parser remote execution is not exposed until its exact API and authorization rules are audited.
+- The Local PC, Bot process, network, and tunnel must already be running. A Vercel page cannot start a powered-off PC or a process that is not reachable.
+- Quick Tunnel URLs can change after restart. For stable production use, configure a named Cloudflare Tunnel and Cloudflare Access.
+- Never place the Dashboard Token in a `VITE_` variable or commit it to GitHub.
