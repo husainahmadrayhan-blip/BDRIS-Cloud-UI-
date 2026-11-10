@@ -6,9 +6,14 @@ const NAV = [
   ["mapping", "DOB / ID Mapping", "⌕"], ["v153", "V153 Control", "⚙"],
   ["parser", "React Parser", "⌘"], ["reports", "Reports & Delivery", "▥"]
 ];
-const request = async (path, options = {}) => {
-  if (!API_BASE) throw new Error("VITE_BOT_API_URL সেট করা হয়নি");
-  const response = await fetch(API_BASE + path, { ...options, headers: { "Content-Type": "application/json", ...(options.headers || {}) }, cache: "no-store" });
+const request = async (path, options = {}, base = API_BASE, token = "") => {
+  if (!base) throw new Error("Connection Settings-এ Local Bot-এর HTTPS Tunnel URL দিন");
+  if (!token) throw new Error("Connection Settings-এ Dashboard Access Token দিন");
+  const response = await fetch(base.replace(/\/$/, "") + path, {
+    ...options,
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...(options.headers || {}) },
+    cache: "no-store"
+  });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
   return data;
@@ -17,6 +22,11 @@ function Pill({ok, children}) { return <span className={`pill ${ok ? "good" : "b
 
 export default function App() {
   const [page, setPage] = useState("overview");
+  const [apiBase, setApiBase] = useState(() => localStorage.getItem("bdris_api_url") || API_BASE);
+  const [apiToken, setApiToken] = useState(() => sessionStorage.getItem("bdris_api_token") || "");
+  const [connectionOpen, setConnectionOpen] = useState(() => !localStorage.getItem("bdris_api_url") || !sessionStorage.getItem("bdris_api_token"));
+  const [draftUrl, setDraftUrl] = useState(() => localStorage.getItem("bdris_api_url") || API_BASE);
+  const [draftToken, setDraftToken] = useState("");
   const [health, setHealth] = useState(null);
   const [rows, setRows] = useState([]);
   const [otp, setOtp] = useState(null);
@@ -27,11 +37,11 @@ export default function App() {
   const [lastSync, setLastSync] = useState(null);
 
   const refresh = useCallback(async () => {
-    if (!API_BASE) { setError("Vercel Environment Variable VITE_BOT_API_URL সেট করতে হবে।"); return; }
+    if (!apiBase || !apiToken) { setError("Connection Settings-এ Tunnel URL এবং Access Token দিন।"); return; }
     setLoading(true); setError("");
     const results = await Promise.allSettled([
-      request("/health"), request("/api/application-mappings"), request("/api/otp/current"),
-      request("/api/dashboard/status")
+      request("/health", {}, apiBase, apiToken), request("/api/application-mappings", {}, apiBase, apiToken), request("/api/otp/current", {}, apiBase, apiToken),
+      request("/api/dashboard/status", {}, apiBase, apiToken)
     ]);
     if (results[0].status === "fulfilled") setHealth(results[0].value);
     else { setHealth(null); setError(results[0].reason.message); }
@@ -40,7 +50,7 @@ export default function App() {
     if (results[3].status === "fulfilled") setStatus(results[3].value);
     setLastSync(new Date());
     setLoading(false);
-  }, []);
+  }, [apiBase, apiToken]);
 
   useEffect(() => { refresh(); const id = setInterval(refresh, 15000); return () => clearInterval(id); }, [refresh]);
 
@@ -49,8 +59,18 @@ export default function App() {
   const doControl = async (path, label) => {
     if (!controlReady) return;
     if (!window.confirm(`${label} করতে চান?`)) return;
-    try { await request(path, { method: "POST", body: "{}" }); await refresh(); }
+    try { await request(path, { method: "POST", body: "{}" }, apiBase, apiToken); await refresh(); }
     catch (e) { setError(e.message); }
+  };
+
+  const saveConnection = () => {
+    const url = draftUrl.trim().replace(/\/$/, "");
+    const token = draftToken.trim();
+    if (!/^https:\/\//i.test(url)) { setError("Public Tunnel URL অবশ্যই HTTPS হতে হবে।"); return; }
+    if (token.length < 32) { setError("Dashboard Access Token কমপক্ষে 32 characters হতে হবে।"); return; }
+    localStorage.setItem("bdris_api_url", url);
+    sessionStorage.setItem("bdris_api_token", token);
+    setApiBase(url); setApiToken(token); setConnectionOpen(false); setError("");
   };
 
   return <div className="shell">
@@ -58,11 +78,12 @@ export default function App() {
       <div className="brand"><div className="brand-mark">B</div><div><b>BDRIS Cloud</b><small>CONTROL CENTER</small></div></div>
       <div className="side-label">WORKSPACE</div>
       {NAV.map(([id,label,icon]) => <button key={id} className={page===id?"nav active":"nav"} onClick={()=>setPage(id)}><span>{icon}</span>{label}</button>)}
-      <div className="side-bottom"><span className="live-dot"/><div><b>Remote Backend</b><small>{API_BASE ? "Tunnel configured" : "Not configured"}</small></div></div>
+      <div className="side-bottom"><span className="live-dot"/><div><b>Remote Backend</b><small>{apiBase && apiToken ? "Tunnel configured" : "Not configured"}</small></div></div>
     </aside>
     <main className="main">
-      <header className="topbar"><div><div className="eyebrow">BDRIS AUTOMATION / CLOUD</div><h1>{NAV.find(n=>n[0]===page)?.[1] || "Overview"}</h1></div><div className="top-actions"><Pill ok={!!health?.ok}>{health?.ok ? "Backend Online" : "Backend Offline"}</Pill><button className="refresh" onClick={refresh}>{loading?"Syncing…":"↻ Refresh"}</button></div></header>
-      {error && <div className="alert">Connection / API notice: {error}</div>}
+      <header className="topbar"><div><div className="eyebrow">BDRIS AUTOMATION / CLOUD</div><h1>{NAV.find(n=>n[0]===page)?.[1] || "Overview"}</h1></div><div className="top-actions"><Pill ok={!!health?.ok}>{health?.ok ? "Backend Online" : "Backend Offline"}</Pill><button className="refresh" onClick={()=>{setDraftUrl(apiBase);setDraftToken("");setConnectionOpen(v=>!v)}}>⚙ Connection</button><button className="refresh" onClick={refresh}>{loading?"Syncing…":"↻ Refresh"}</button></div></header>
+      {connectionOpen && <section className="panel connection-panel"><div className="panel-head"><div><h3>Local Bot Connection</h3><p>Vercel UI থেকে Local PC-এর HTTPS Tunnel-এ সংযোগ করুন।</p></div><Pill ok={!!apiBase && !!apiToken}>{apiBase && apiToken ? "Configured" : "Setup required"}</Pill></div><label>Public HTTPS Tunnel URL</label><input className="search" value={draftUrl} onChange={e=>setDraftUrl(e.target.value)} placeholder="https://xxxx.trycloudflare.com"/><label>Dashboard Access Token</label><input className="search" type="password" value={draftToken} onChange={e=>setDraftToken(e.target.value)} placeholder="Local PC-এর dashboard-access-token.local থেকে কপি করুন"/><div className="control-row"><button className="primary" onClick={saveConnection}>Save & Connect</button><button className="refresh" onClick={()=>{setConnectionOpen(false);setDraftToken("")}}>Close</button><span className="hint">Token শুধু এই browser tab/session-এ রাখা হয়।</span></div></section>}
+      {error && <div className="alert">Connection / API notice: {error}</div>
       {page==="overview" && <>
         <section className="welcome"><div><div className="eyebrow light">REMOTE OPERATIONS</div><h2>তোমার BDRIS Bot, এক জায়গা থেকে</h2><p>Bot-এর কম্পিউটার আলাদা থাকবে। এই Dashboard Tunnel দিয়ে Backend-এর সঙ্গে যোগাযোগ করবে।</p></div><div className="welcome-icon">⌘</div></section>
         <section className="stats">
@@ -71,7 +92,7 @@ export default function App() {
           <article className="stat"><span>WhatsApp</span><strong>{status?.whatsappConnected===true?"Connected":status?.whatsappConnected===false?"Disconnected":"Unknown"}</strong><small>Requires dashboard status API</small></article>
           <article className="stat"><span>OTP Queue</span><strong>{otp?.waitingCount ?? "—"}</strong><small>Waiting OTP sessions</small></article>
         </section>
-        <section className="panel"><div className="panel-head"><div><h3>Bot Control</h3><p>Remote start / stop requires secured control API.</p></div><Pill ok={status?.botOnline===true}>{status?.botOnline===true?"Bot Online":status?.botOnline===false?"Bot Offline":"Status Unknown"}</Pill></div><div className="control-row"><button disabled={!controlReady} className="primary" onClick={()=>doControl("/api/bot/start","Bot Start")}>▶ Start Bot</button><button disabled={!controlReady} className="danger" onClick={()=>doControl("/api/bot/stop","Bot Stop")}>■ Stop Bot</button><span className="hint">{controlReady?"Control API ready":"নিরাপত্তাসহ Bot Control API এখনো Backend-এ যোগ করা হয়নি"}</span></div></section>
+        <section className="panel"><div className="panel-head"><div><h3>Bot Control</h3><p>Remote start / stop requires secured control API.</p></div><Pill ok={status?.botOnline===true}>{status?.botOnline===true?"Bot Online":status?.botOnline===false?"Bot Offline":"Status Unknown"}</Pill></div><div className="control-row"><button disabled={!controlReady} className="primary" onClick={()=>doControl("/api/dashboard/bot/start","Bot Start")}>▶ Start Bot</button><button disabled className="danger" title="Session-safe Stop API এই release-এ expose করা হয়নি">■ Stop unavailable</button><span className="hint">{controlReady?"Control API ready":"নিরাপত্তাসহ Bot Control API এখনো Backend-এ যোগ করা হয়নি"}</span></div></section>
         <section className="panel"><div className="panel-head"><div><h3>Recent Applications</h3><p>সর্বশেষ Mapping records</p></div><button className="text-btn" onClick={()=>setPage("applications")}>সব দেখুন →</button></div><Records rows={rows.slice(0,6)}/></section>
       </>}
       {page==="applications" && <section className="panel"><div className="panel-head"><div><h3>Application List</h3><p>Application ID, BRN, DOB, Customer ও State</p></div><span className="count">{filtered.length} records</span></div><input className="search" placeholder="ID / DOB / Customer খুঁজুন..." value={query} onChange={e=>setQuery(e.target.value)}/><Records rows={filtered}/></section>}
