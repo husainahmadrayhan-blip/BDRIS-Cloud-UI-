@@ -1,21 +1,30 @@
 # BDRIS Cloud UI
 
-React dashboard frontend for a separately hosted BDRIS Bot backend.
+React dashboard frontend for the BDRIS Bot backend and the local React Parser running on the user's PC.
 
 ## Deploy to Vercel
+
 1. Import this GitHub repository into Vercel.
 2. Framework preset: Vite.
 3. Build command: `npm run build`.
 4. Output directory: `dist`.
-5. Add environment variable `VITE_BOT_API_URL` with the HTTPS base URL of the Bot computer's Cloudflare Tunnel (do not include the review query string).
-6. Redeploy after setting the variable.
+5. Add `VITE_BOT_API_URL` only if the existing Bot backend API is configured.
+6. Add `VITE_REACT_PARSER_URL` with the HTTPS Tailscale Funnel base URL, without a trailing slash. Current configured PC URL:
+   `https://desktop-18jqpvf.tail3c7dea.ts.net:8443`
+7. Redeploy after setting or changing environment variables.
 
-## Current backend endpoints used
-- `GET /health`
-- `GET /api/application-mappings`
-- `GET /api/otp/current`
+## React Parser connection
 
-## Pending backend work
-The supplied V153 ZIP does not currently expose a secured dashboard API for Bot start/stop, WhatsApp connection state, V153 controls, remote React Parser execution, or reports/delivery history. The UI intentionally keeps unsupported controls disabled rather than sending unsafe requests.
+The React Parser page checks only the public read-only health endpoint:
 
-**Security:** The current backend routes shown in the supplied ZIP do not implement dashboard authentication. Do not expose control or sensitive data endpoints publicly until authentication, authorization, CORS allowlisting, and request validation are implemented. Never put API secrets in Vite client environment variables.
+- `GET /api/health`
+- Opens the Parser UI at `/index.html?v=58`
+
+The current Tailscale Funnel routes port `8443` to the local React Parser server (currently port `50315`). The local server may choose a different port after restart. If that happens, update the Funnel mapping and the Vercel `VITE_REACT_PARSER_URL` value, then redeploy.
+
+## Security notes
+
+- Vite environment variables are public in the browser bundle. Do not put API keys, dashboard tokens, passwords, or other secrets in any `VITE_*` variable.
+- The Parser integration in this commit checks health and opens the Parser UI only. It does not expose Bot start/stop, OTP, application data, Parser execution, or Submit endpoints.
+- Do not expose sensitive control endpoints through a public Funnel until server-side authentication, authorization, request validation, and appropriate origin protections are implemented.
+- The existing `VITE_BOT_API_URL` integration is kept separate and unchanged.

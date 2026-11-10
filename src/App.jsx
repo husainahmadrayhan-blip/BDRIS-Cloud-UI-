@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 const API_BASE = (import.meta.env.VITE_BOT_API_URL || "").replace(/\/$/, "");
+const PARSER_BASE = (import.meta.env.VITE_REACT_PARSER_URL || "").replace(/\/$/, "");
 const NAV = [
   ["overview", "Overview", "▦"], ["applications", "Application List", "▤"],
   ["mapping", "DOB / ID Mapping", "⌕"], ["v153", "V153 Control", "⚙"],
@@ -77,11 +78,60 @@ export default function App() {
       {page==="applications" && <section className="panel"><div className="panel-head"><div><h3>Application List</h3><p>Application ID, BRN, DOB, Customer ও State</p></div><span className="count">{filtered.length} records</span></div><input className="search" placeholder="ID / DOB / Customer খুঁজুন..." value={query} onChange={e=>setQuery(e.target.value)}/><Records rows={filtered}/></section>}
       {page==="mapping" && <section className="panel"><div className="panel-head"><div><h3>DOB / ID Mapping</h3><p>বর্তমান Backend-এর /api/application-mappings থেকে</p></div></div><Records rows={filtered}/></section>}
       {page==="v153" && <Unavailable title="V153 Control" detail="এই ZIP-এ Dashboard-এর জন্য আলাদা V153 status/control API পাওয়া যায়নি। Backend API যোগ হলে এখানে যুক্ত হবে।"/>}
-      {page==="parser" && <Unavailable title="React Parser" detail="React Parser-এর সোর্স ও Local UI ZIP-এ আছে। নিরাপদ Remote Parser API এবং authentication তৈরি না হওয়া পর্যন্ত এখানে Run action চালু করা হচ্ছে না।"/>}
+      {page==="parser" && <ParserPanel baseUrl={PARSER_BASE}/>}
       {page==="reports" && <Unavailable title="Reports & Delivery Status" detail="এই ZIP-এ Dashboard-এর জন্য Reports / Delivery history API পাওয়া যায়নি। প্রয়োজনীয় data endpoint যোগ হলে রিপোর্ট দেখানো যাবে।"/>}
       <footer>Last sync: {lastSync ? lastSync.toLocaleTimeString() : "Not synced"} · Refreshes every 15 seconds</footer>
     </main>
   </div>;
+}
+function ParserPanel({baseUrl}) {
+  const [health, setHealth] = useState(null);
+  const [checking, setChecking] = useState(false);
+  const [error, setError] = useState("");
+
+  const check = useCallback(async () => {
+    if (!baseUrl) {
+      setHealth(null);
+      setError("Vercel Environment Variable VITE_REACT_PARSER_URL সেট করা হয়নি।");
+      return;
+    }
+    setChecking(true);
+    setError("");
+    try {
+      const response = await fetch(baseUrl + "/api/health", { cache: "no-store" });
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      const data = await response.json();
+      if (!data?.ok) throw new Error("Parser health response is not OK");
+      setHealth(data);
+    } catch (err) {
+      setHealth(null);
+      setError(err.message || "Parser connection failed. CORS বা Funnel/server status পরীক্ষা করুন।");
+    } finally {
+      setChecking(false);
+    }
+  }, [baseUrl]);
+
+  useEffect(() => { check(); }, [check]);
+
+  const parserPage = baseUrl ? baseUrl + "/index.html?v=58" : "";
+  return <section className="panel parser-panel">
+    <div className="panel-head">
+      <div><h3>Local React Parser</h3><p>আপনার PC-তে চলা React Parser, Tailscale Funnel দিয়ে সংযুক্ত</p></div>
+      <Pill ok={health?.ok === true}>{health?.ok ? "Parser Online" : "Parser Offline"}</Pill>
+    </div>
+    <div className="parser-details">
+      <div><span>Public Parser URL</span><code>{baseUrl || "Not configured"}</code></div>
+      <div><span>Health endpoint</span><code>{baseUrl ? baseUrl + "/api/health" : "Not configured"}</code></div>
+      {health?.version && <div><span>Parser version</span><strong>{health.version}</strong></div>}
+      {health?.installationId && <div><span>Installation ID</span><code>{health.installationId}</code></div>}
+    </div>
+    {error && <div className="alert">{error}</div>}
+    <div className="control-row">
+      <button className="primary" onClick={() => window.open(parserPage, "_blank", "noopener,noreferrer")} disabled={!parserPage}>↗ Open React Parser</button>
+      <button className="refresh" onClick={check} disabled={checking}>{checking ? "Checking…" : "↻ Check connection"}</button>
+    </div>
+    <p className="parser-note">এই Dashboard শুধু Parser-এর health পরীক্ষা ও Parser page খোলার সুবিধা দেয়। Parser-এর sensitive API বা Run/Submit control এখানে expose করা হয়নি। Funnel-এর target port বদলালে Vercel-এর VITE_REACT_PARSER_URL আপডেট করতে হবে।</p>
+  </section>;
 }
 function Records({rows}) {
   if (!rows.length) return <div className="empty">কোনো রেকর্ড পাওয়া যায়নি অথবা Backend API সংযুক্ত হয়নি।</div>;
